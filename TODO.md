@@ -13,24 +13,26 @@
 
 ### 1.2 Core Infrastructure
 
-- [ ] Implement EventBus class using Node.js EventEmitter
-- [ ] Create BaseComponent class for all modules
-- [ ] Implement Logger class with structured logging (Winston)
-- [ ] Create ConfigLoader utility for configuration management
-- [ ] Set up error handling framework
-- [ ] Implement environment variables support
+- [x] Implement EventBus class using Node.js EventEmitter
+- [x] Create BaseComponent class for all modules
+- [x] Implement Logger class with structured logging (Winston)
+- [x] Create ConfigLoader utility for configuration management
+- [x] Set up error handling framework
+- [x] Implement environment variables support
+- [ ] Add runtime validation library (Zod/Joi) to package.json
+- [ ] Create parser contract interface in src/core/types.js
 
 ## Phase 2: Core Modules Implementation
 
 ### 2.1 MQTT Client Module
 
-- [ ] Implement MqttClient class extending BaseComponent
-- [ ] Add MQTT connection handling
-- [ ] Implement topic subscription from configuration
-- [ ] Add mqtt.message event emission
-- [ ] Implement connection retry logic
-- [ ] Add graceful shutdown handling
-- [ ] Add connection status monitoring
+- [x] Implement MqttClient class extending BaseComponent
+- [x] Add MQTT connection handling
+- [x] Implement topic subscription from configuration
+- [x] Add mqtt.message event emission
+- [x] Implement connection retry logic
+- [x] Add graceful shutdown handling
+- [x] Add connection status monitoring
 
 ### 2.2 Device Parsers
 
@@ -41,6 +43,9 @@
 - [x] Add parser error handling
 - [x] Define parser interface/contract
 - [x] Add TODO comments for device-specific implementation
+- [ ] Add input validation using Zod/Joi to all parsers
+- [ ] Implement UTC timestamp conversion in all parsers
+- [ ] Wrap all parsing logic in try-catch blocks
 
 ### 2.3 Unified Normalizer Module
 
@@ -56,13 +61,13 @@
 
 ### 2.4 Memory Storage Module
 
-- [ ] Implement MemoryStorage class extending BaseComponent
-- [ ] Add in-memory storage for latest sensor data
-- [ ] Implement data retrieval methods by deviceId
-- [ ] Implement data retrieval methods by deviceType
-- [ ] Add memory usage monitoring
-- [ ] Implement data expiration if needed
-- [ ] Add thread-safe operations
+- [x] Implement MemoryStorage class extending BaseComponent
+- [x] Add in-memory storage for latest sensor data
+- [x] Implement data retrieval methods by deviceId
+- [x] Implement data retrieval methods by deviceType
+- [x] Add memory usage monitoring
+- [x] Implement data expiration if needed
+- [x] Add thread-safe operations
 
 ## Phase 3: Storage and Database
 
@@ -76,22 +81,22 @@
 
 ### 3.2 Database Storage Module
 
-- [ ] Implement DatabaseStorage class extending BaseComponent
-- [ ] Add MySQL connection pool handling
-- [ ] Implement WriteBuffer class for batch writes
-- [ ] Implement Cache class for frequently accessed data
-- [ ] Add database write retry logic
-- [ ] Implement message.normalized event subscription
-- [ ] Add graceful shutdown with buffer flush
-- [ ] Implement connection error handling
+- [x] Implement DatabaseStorage class extending BaseComponent
+- [x] Add MySQL connection pool handling
+- [x] Implement WriteBuffer class for batch writes
+- [x] Implement Cache class for frequently accessed data
+- [x] Add database write retry logic
+- [x] Implement message.normalized event subscription
+- [x] Add graceful shutdown with buffer flush
+- [x] Implement connection error handling
 
 ### 3.3 Cache Implementation
 
-- [ ] Implement in-memory caching for frequently accessed data
-- [ ] Add TTL (Time To Live) functionality
-- [ ] Implement cache size limits with LRU eviction
-- [ ] Add cache statistics monitoring
-- [ ] Implement cache clear methods
+- [x] Implement in-memory caching for frequently accessed data
+- [x] Add TTL (Time To Live) functionality
+- [x] Implement cache size limits with LRU eviction
+- [x] Add cache statistics monitoring
+- [x] Implement cache clear methods
 
 ## Phase 4: HTTP and Communication Modules
 
@@ -101,7 +106,7 @@
 - [ ] Set up Express.js server
 - [ ] Implement CORS middleware
 - [ ] Add body parser middleware
-- [ ] Implement graceful shutdown
+- [ ] Implement graceful shutdown with buffer flushing
 - [ ] Add server health monitoring
 - [ ] Support shared server for REST API and WebSocket
 
@@ -115,7 +120,8 @@
 - [ ] Implement /api/devices endpoint
 - [ ] Implement /api/devices/:deviceId/latest endpoint
 - [ ] Implement /api/devices/:deviceId/history endpoint
-- [ ] Implement /api/specific endpoint (GET and POST)
+- [ ] Implement GET /api/specific endpoint with query parameters (preferred for caching)
+- [ ] Implement POST /api/devices/data/search endpoint for complex queries
 - [ ] Implement webhook management endpoints (GET /api/webhooks)
 - [ ] Implement POST /api/webhooks endpoint
 - [ ] Implement PUT /api/webhooks/:id endpoint
@@ -133,7 +139,8 @@
 - [ ] Set up WebSocket server (ws library)
 - [ ] Implement client connection handling
 - [ ] Add message.normalized event subscription
-- [ ] Implement message broadcasting to clients
+- [ ] Implement client subscription filtering to prevent message flooding
+- [ ] Implement selective message broadcasting based on client subscriptions
 - [ ] Add connection monitoring
 - [ ] Implement graceful shutdown
 - [ ] Add client disconnect handling
@@ -296,6 +303,15 @@
 - [ ] Implement advanced analytics
 - [ ] Add alerting system
 
+### 8.7 Architectural Improvements (V2)
+
+- [ ] Abstract EventBus interface for Redis Pub/Sub scaling
+- [ ] Implement database table partitioning by time
+- [ ] Add MySQL generated columns for frequent JSON field queries
+- [ ] Implement Write Ahead Log for buffer durability
+- [ ] Replace ConfigLoader with convict/dotenv with schema validation
+- [ ] Add database migration runner for schema management
+
 ## Implementation Priority
 
 ### High Priority (V1 Must-Have)
@@ -430,7 +446,7 @@
 npm init -y
 
 # Install dependencies
-npm install mqtt express ws mysql2 winston dotenv
+npm install mqtt express ws mysql2 winston dotenv zod
 
 # Install dev dependencies
 npm install --save-dev eslint prettier jest supertest nodemon
@@ -438,6 +454,9 @@ npm install --save-dev eslint prettier jest supertest nodemon
 # Create project structure
 mkdir -p src/{core,modules/{mqtt,normalizer,storage,relay,http,api,websocket,webhook},utils}
 mkdir -p config tests/{unit,integration} logs docs migrations
+
+# Create mock device generator for testing
+mkdir -p tests/mock
 ```
 
 ### 2. Development Phase
@@ -445,6 +464,7 @@ mkdir -p config tests/{unit,integration} logs docs migrations
 - Start with Phase 1 (Core Infrastructure)
 - Implement modules in dependency order
 - Write unit tests alongside implementation
+- Create mock device generator script for testing before implementing Normalizer/Database
 - Use mock data for testing until device specs arrive
 - Follow git commit conventions
 

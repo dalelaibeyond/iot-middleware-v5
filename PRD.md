@@ -54,6 +54,13 @@ IoT Middleware v5 is built on a modular, event-driven architecture that enables 
 3. Cache Configuration
    - `maxSize`: Maximum number of cached items (default: 10000)
    - `ttl`: Time to live for cached items in milliseconds (default: 3600000)
+4. Data Validation and Error Handling
+   - Input validation using runtime validation (Zod/Joi) in parsers
+   - Graceful shutdown handling to prevent data loss
+   - Strict UTC timestamp handling for all device data
+5. WebSocket Performance
+   - Client-side subscription filtering to prevent message flooding
+   - Selective message broadcasting based on client subscriptions
 
 ## Database Design
 
@@ -175,9 +182,12 @@ EventBus → REST API (on-demand queries)
 ### Module: WebSocket (configurable and optional)
 
 1. Subscribe to event "message.normalized"
-2. Broadcast messages to registered WebSocket listeners
-3. Connect to `ws://localhost:3000` or `ws://localhost:3000/ws` to receive real-time sensor data updates
-4. Runs on shared HTTP server
+2. Implement client subscription filtering to prevent message flooding:
+   - Clients send: `{"action": "subscribe", "deviceId": "V5008-123"}`
+   - Server only sends data for subscribed devices to respective clients
+3. Broadcast messages to registered WebSocket listeners based on subscriptions
+4. Connect to `ws://localhost:3000` or `ws://localhost:3000/ws` to receive real-time sensor data updates
+5. Runs on shared HTTP server
 
 **Authentication (V2 Feature)**
 When security module is enabled in V2, WebSocket connections will require JWT authentication.
@@ -193,8 +203,8 @@ When security module is enabled in V2, WebSocket connections will require JWT au
    - **GET /api/devices** - Returns a list of all devices [{deviceId, deviceType}]
    - **GET /api/devices/:deviceId/latest** - Return latest sensor data (from memory storage)
    - **GET /api/devices/:deviceId/history?limit=50&startTime=2023-01-01&endTime=2023-01-02** - Returns historical data for a specific device with optional filtering (from database, returns empty if database module disabled)
-   - **GET /api/specific?deviceId=…&modNum=…&modId=…&sensorType=…&limit=…&startTime=…&endTime=…** - Query specific sensor data
-   - **POST /api/specific** - Query specific sensor data (POST body)
+   - **GET /api/specific?deviceId=…&modNum=…&modId=…&sensorType=…&limit=…&startTime=…&endTime=…** - Query specific sensor data with query parameters (preferred for caching)
+   - **POST /api/devices/data/search** - Alternative endpoint for complex search queries (GraphQL-style)
    ```json
    {
      "deviceId": "<deviceId>",
@@ -415,14 +425,33 @@ class DeviceParser {
    * @returns {Object} Parsed intermediate format
    */
   parse(topic, message) {
-    // Implementation to be provided based on device specifications
-    return {
-      deviceId: "string",
-      deviceType: "string",
-      messageClass: "string",
-      timestamp: "ISO8601 string",
-      data: {}, // Device-specific data
-    };
+    try {
+      // Input validation using runtime validation (Zod/Joi)
+      this.validateInput(topic, message);
+      
+      // Implementation to be provided based on device specifications
+      const parsedData = {
+        deviceId: "string",
+        deviceType: "string",
+        messageClass: "string",
+        timestamp: "ISO8601 string in UTC", // Always UTC
+        data: {}, // Device-specific data
+      };
+      
+      return parsedData;
+    } catch (error) {
+      // Emit structured error for handling by other components
+      throw new Error(`Parser error: ${error.message}`);
+    }
+  }
+  
+  /**
+   * Validate input parameters
+   * @param {string} topic - MQTT topic
+   * @param {Buffer|string} message - MQTT message payload
+   */
+  validateInput(topic, message) {
+    // Implementation using Zod/Joi schemas
   }
 }
 ```
@@ -597,6 +626,8 @@ Each module is self-contained with clear interface.
 - Use the provided logger for consistent logging
 - Validate required options in `initialize()`
 - Emit events for significant state changes
+- **Graceful Shutdown**: Ensure all buffers are flushed and connections closed properly
+- **Error Handling**: Wrap all async operations in try-catch blocks with proper error emission
 
 ### 2. Error Handling
 
@@ -618,6 +649,7 @@ Each module is self-contained with clear interface.
 - Mock external dependencies
 - Test error conditions
 - Verify event emissions
+- **Mock Data Generator**: Create device simulation scripts for testing
 
 ### 5. Performance
 
@@ -905,3 +937,7 @@ Environment variables take precedence over configuration files.
 4. **Modular Design**: Each module is independent and can be developed/tested in isolation
 5. **Configuration First**: All configuration files should be created before module implementation
 6. **Test-Driven**: Write tests alongside implementation for better code quality
+7. **Data Validation**: All parsers must implement strict input validation to prevent crashes
+8. **UTC Time Handling**: All device timestamps must be converted to UTC before storage
+9. **Graceful Shutdown**: All modules must implement proper shutdown with buffer flushing
+10. **WebSocket Filtering**: Implement client-side subscription filtering to prevent message flooding

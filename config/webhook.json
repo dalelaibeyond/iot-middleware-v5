@@ -1,0 +1,22 @@
+{
+  "enabled": false,
+  "endpoints": [
+    {
+      "id": "webhook-1",
+      "url": "https://example.com/webhook",
+      "enabled": true,
+      "description": "Example webhook endpoint"
+    }
+  ],
+  "retryPolicy": {
+    "maxRetries": 3,
+    "initialDelay": 1000,
+    "maxDelay": 30000,
+    "backoffMultiplier": 2
+  },
+  "timeout": 5000,
+  "headers": {
+    "Content-Type": "application/json",
+    "User-Agent": "IoT-Middleware-V5"
+  }
+}

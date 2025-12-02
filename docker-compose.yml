@@ -1,0 +1,50 @@
+# docker-compose.yml
+version: "3.8"
+
+services:
+  iot-middleware:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - MQTT_BROKER=mqtt://mosquitto:1883
+      - DB_HOST=mysql
+      - DB_USER=iotuser
+      - DB_PASSWORD=iotpass
+      - DB_NAME=iotdb
+    depends_on:
+      - mosquitto
+      - mysql
+    volumes:
+      - ./config:/app/config
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8
+    environment:
+      - MYSQL_ROOT_PASSWORD=rootpass
+      - MYSQL_DATABASE=iotdb
+      - MYSQL_USER=iotuser
+      - MYSQL_PASSWORD=iotpass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/001_initial_schema.sql
+    restart: unless-stopped
+
+volumes:
+  mysql_data:

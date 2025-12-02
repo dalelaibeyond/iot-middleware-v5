@@ -1,0 +1,12 @@
+{
+  "broker": "mqtt://localhost:1883",
+  "clientId": "iot-middleware-v5",
+  "username": "dale",
+  "password": "12345678",
+  "topics": ["V5008Upload/#", "V6800Upload/#", "G6000Upload/#"],
+  "qos": 1,
+  "keepalive": 60,
+  "reconnectPeriod": 1000,
+  "connectTimeout": 30000,
+  "topicPattern": "{deviceType}Upload/{deviceId}/{messageClass}"
+}

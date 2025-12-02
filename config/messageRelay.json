@@ -1,0 +1,10 @@
+{
+  "broker": "mqtt://localhost:1883",
+  "clientId": "iot-middleware-relay",
+  "username": "dale",
+  "password": "12345678",
+  "topicPattern": "Normalizer/{deviceType}/{deviceId}/{sensorType}",
+  "qos": 1,
+  "keepalive": 60,
+  "reconnectPeriod": 1000
+}

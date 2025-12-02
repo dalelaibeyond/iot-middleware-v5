@@ -1,0 +1,17 @@
+{
+  "host": "localhost",
+  "port": 3306,
+  "user": "root",
+  "password": "123456789",
+  "database": "iot_middleware",
+  "connectionLimit": 10,
+  "writeBuffer": {
+    "maxSize": 1000,
+    "flushInterval": 5000,
+    "maxRetries": 3
+  },
+  "cache": {
+    "maxSize": 10000,
+    "ttl": 3600000
+  }
+}

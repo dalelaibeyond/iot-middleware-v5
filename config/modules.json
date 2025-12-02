@@ -1,0 +1,38 @@
+{
+  "mqttClient": {
+    "enabled": true,
+    "mandatory": true
+  },
+  "normalizer": {
+    "enabled": true,
+    "mandatory": true
+  },
+  "memoryStorage": {
+    "enabled": true,
+    "mandatory": true
+  },
+  "databaseStorage": {
+    "enabled": false,
+    "mandatory": false
+  },
+  "messageRelay": {
+    "enabled": false,
+    "mandatory": false
+  },
+  "httpServer": {
+    "enabled": false,
+    "mandatory": false
+  },
+  "restApi": {
+    "enabled": false,
+    "mandatory": false
+  },
+  "webSocket": {
+    "enabled": false,
+    "mandatory": false
+  },
+  "webhook": {
+    "enabled": false,
+    "mandatory": false
+  }
+}

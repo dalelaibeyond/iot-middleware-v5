@@ -1,7 +1,7 @@
 /**
  * V6800Parser.js
  * Parser for V6800 device messages
- * TODO: Implement based on device specifications
+ * Minimal skeleton implementation - TODO: Implement based on device specifications
  */
 
 class V6800Parser {
@@ -17,9 +17,7 @@ class V6800Parser {
    */
   parse(topic, message) {
     try {
-      // TODO: Implement V6800 specific message parsing logic
-      // This is a placeholder implementation until device specifications are provided
-
+      // Minimal skeleton implementation - just extract basic info
       const messageString = message.toString();
 
       // Extract device information from topic
@@ -32,40 +30,27 @@ class V6800Parser {
       const deviceId = topicParts[1];
       const messageClass = topicParts[2];
 
-      // Placeholder parsing logic - to be replaced with actual implementation
-      let parsedData = {
+      // Skeleton parsing logic - return minimal structure for app to run
+      return {
         deviceId,
         deviceType: this.deviceType,
         messageClass,
         timestamp: new Date().toISOString(),
         rawMessage: messageString,
-        data: {},
-      };
-
-      // TODO: Add actual parsing logic based on V6800 message format
-      // Example placeholder logic:
-      try {
-        // Try to parse as JSON first
-        const jsonData = JSON.parse(messageString);
-        parsedData.data = jsonData;
-      } catch (e) {
-        // If not JSON, treat as raw string and try to extract patterns
-        parsedData.data = {
+        data: {
+          msgType: 'UNKNOWN', // Placeholder
           raw: messageString,
-          // TODO: Add regex-based parsing for specific V6800 message formats
-        };
-      }
-
-      return parsedData;
+        },
+      };
     } catch (error) {
       throw new Error(`V6800 parser error: ${error.message}`);
     }
   }
 
   /**
-   * Validate if this parser can handle the given topic
+   * Validate if this parser can handle given topic
    * @param {string} topic - MQTT topic
-   * @returns {boolean} True if this parser can handle the topic
+   * @returns {boolean} True if this parser can handle topic
    */
   canHandle(topic) {
     return topic.startsWith('V6800Upload/');

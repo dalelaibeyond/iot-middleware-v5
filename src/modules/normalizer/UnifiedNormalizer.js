@@ -15,24 +15,23 @@ class UnifiedNormalizer extends BaseComponent {
     this.deviceHistory = new Map(); // Store previous messages for comparison
     this.setupParsers();
 
-    // Color code to name mapping for V5008
+    // Color code to name mapping for V5008 (updated to match v1.4rev spec)
     this.colorCodeMap = {
-      0: 'BLACK',
+      0: 'OFF',
       1: 'RED',
-      2: 'GREEN',
+      2: 'PURPLE',
       3: 'YELLOW',
-      4: 'BLUE',
-      5: 'MAGENTA',
-      6: 'CYAN',
+      4: 'GREEN',
+      5: 'CYAN',
+      6: 'BLUE',
       7: 'WHITE',
-      8: 'ORANGE',
-      9: 'PURPLE',
-      10: 'LIME',
-      11: 'PINK',
-      12: 'GRAY',
-      13: 'LIGHT_BLUE',
-      14: 'BROWN',
-      15: 'LIGHT_GREEN',
+      8: 'RED_F',      // Flash colors
+      9: 'PURPLE_F',
+      10: 'YELLOW_F',
+      11: 'GREEN_F',
+      12: 'CYAN_F',
+      13: 'BLUE_F',
+      14: 'WHITE_F',
     };
   }
 
@@ -152,6 +151,41 @@ class UnifiedNormalizer extends BaseComponent {
   }
 
   /**
+   * Create unified data record for hybrid storage model
+   * @param {Object} params - Parameters for unified record
+   * @returns {Object} Unified data record
+   */
+  createUnifiedRecord({
+    deviceId,
+    deviceType,
+    moduleIndex = 0,
+    sensorIndex = 0,
+    messageClass,
+    dataKey,
+    numValue = null,
+    strValue = null,
+    jsonValue = null,
+    tsDevice,
+    messageId = null,
+    rawMessage = null
+  }) {
+    return {
+      deviceId,
+      deviceType,
+      moduleIndex,
+      sensorIndex,
+      messageClass,
+      dataKey,
+      numValue,
+      strValue,
+      jsonValue,
+      tsDevice,
+      messageId,
+      rawMessage
+    };
+  }
+
+  /**
    * Normalize V5008 messages according to specification
    * @param {Object} parsedData - Parsed V5008 message data
    * @returns {Array} Array of normalized messages
@@ -163,26 +197,21 @@ class UnifiedNormalizer extends BaseComponent {
     switch (data.msgType) {
       case 'HEARTBEAT':
         normalizedMessages.push(
-          this.createNormalizedMessage({
+          this.createUnifiedRecord({
             deviceId,
             deviceType,
-            sensorType: 'DEVICE',
-            msgType: 'HEARTBEAT',
-            modNum: null,
-            modId: null,
-            ts: timestamp,
-            payload: {
+            messageClass: 'STATE',
+            dataKey: 'heartbeat',
+            jsonValue: {
               modules: data.modules.map((module) => ({
-                modNum: module.modNum,
+                modAddr: module.modAddr,
                 modId: module.modId.toString(16).toUpperCase().padStart(8, '0'),
-                uCount: module.uCount,
+                uTotal: module.uTotal,
               })),
-              msgId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
             },
-            meta: {
-              messageClass,
-              rawMessage: parsedData.rawMessage,
-            },
+            tsDevice: timestamp,
+            messageId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
+            rawMessage: parsedData.rawMessage,
           }),
         );
         break;
@@ -193,205 +222,192 @@ class UnifiedNormalizer extends BaseComponent {
         break;
 
       case 'TEMP_HUM':
-        // Create separate messages for each sensor
+        // Create separate records for each sensor (split telemetry)
         for (const sensor of data.sensors) {
-          normalizedMessages.push(
-            this.createNormalizedMessage({
-              deviceId,
-              deviceType,
-              sensorType: 'TEMP_HUM',
-              msgType: 'TEMP_HUM',
-              modNum: data.modNum,
-              modId: data.modId.toString(16).toUpperCase().padStart(8, '0'),
-              ts: timestamp,
-              payload: {
-                add: sensor.add,
-                temp: sensor.temp,
-                hum: sensor.hum,
-                msgId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
-              },
-              meta: {
-                messageClass,
+          if (sensor.temp !== null) {
+            normalizedMessages.push(
+              this.createUnifiedRecord({
+                deviceId,
+                deviceType,
+                moduleIndex: data.modAddr,
+                sensorIndex: sensor.sensorAddr,
+                messageClass: 'TELEMETRY',
+                dataKey: 'temperature',
+                numValue: sensor.temp,
+                tsDevice: timestamp,
+                messageId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
                 rawMessage: parsedData.rawMessage,
-              },
-            }),
-          );
+              }),
+            );
+          }
+          
+          if (sensor.hum !== null) {
+            normalizedMessages.push(
+              this.createUnifiedRecord({
+                deviceId,
+                deviceType,
+                moduleIndex: data.modAddr,
+                sensorIndex: sensor.sensorAddr,
+                messageClass: 'TELEMETRY',
+                dataKey: 'humidity',
+                numValue: sensor.hum,
+                tsDevice: timestamp,
+                messageId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
+                rawMessage: parsedData.rawMessage,
+              }),
+            );
+          }
         }
         break;
 
       case 'NOISE':
-        // Create separate messages for each sensor
+        // Create separate records for each sensor (split telemetry)
         for (const sensor of data.sensors) {
-          normalizedMessages.push(
-            this.createNormalizedMessage({
-              deviceId,
-              deviceType,
-              sensorType: 'NOISE',
-              msgType: 'NOISE',
-              modNum: data.modNum,
-              modId: data.modId.toString(16).toUpperCase().padStart(8, '0'),
-              ts: timestamp,
-              payload: {
-                add: sensor.add,
-                noise: sensor.noise,
-                msgId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
-              },
-              meta: {
-                messageClass,
+          if (sensor.noise !== null) {
+            normalizedMessages.push(
+              this.createUnifiedRecord({
+                deviceId,
+                deviceType,
+                moduleIndex: data.modAddr,
+                sensorIndex: sensor.sensorAddr,
+                messageClass: 'TELEMETRY',
+                dataKey: 'noise',
+                numValue: sensor.noise,
+                tsDevice: timestamp,
+                messageId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
                 rawMessage: parsedData.rawMessage,
-              },
-            }),
-          );
+              }),
+            );
+          }
         }
         break;
 
       case 'DOOR':
         normalizedMessages.push(
-          this.createNormalizedMessage({
+          this.createUnifiedRecord({
             deviceId,
             deviceType,
-            sensorType: 'DOOR',
-            msgType: 'DOOR',
-            modNum: data.modNum,
-            modId: data.modId.toString(16).toUpperCase().padStart(8, '0'),
-            ts: timestamp,
-            payload: {
-              status: this.convertDoorStatus(data.status),
-              msgId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
-            },
-            meta: {
-              messageClass,
-              rawMessage: parsedData.rawMessage,
-            },
+            moduleIndex: data.modAddr,
+            sensorIndex: 0, // Door is per module
+            messageClass: 'EVENT',
+            dataKey: 'door_state',
+            strValue: data.doorState === '01' ? 'OPEN' : 'CLOSED',
+            numValue: data.doorState === '01' ? 1 : 0,
+            tsDevice: timestamp,
+            messageId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
+            rawMessage: parsedData.rawMessage,
           }),
         );
         break;
 
       case 'QRY_DEVICE':
         normalizedMessages.push(
-          this.createNormalizedMessage({
+          this.createUnifiedRecord({
             deviceId,
             deviceType,
-            sensorType: 'DEVICE',
-            msgType: 'QRY_DEVICE',
-            modNum: null,
-            modId: null,
-            ts: timestamp,
-            payload: {
-              deviceType: data.deviceType,
-              fwVersion: data.fwVersion.toString(16).toUpperCase().padStart(8, '0'),
+            messageClass: 'STATE',
+            dataKey: 'device_info',
+            jsonValue: {
+              model: data.deviceType.toString(16).toUpperCase(),
+              fwVer: data.fwVersion.toString(16).toUpperCase().padStart(8, '0'),
               ip: this.convertIpToString(data.ip),
               mask: this.convertIpToString(data.mask),
-              gateway: this.convertIpToString(data.gateway),
+              gatewayIp: this.convertIpToString(data.gateway),
               mac: this.convertMacToString(data.mac),
-              msgId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
             },
-            meta: {
-              messageClass,
-              rawMessage: parsedData.rawMessage,
-            },
+            tsDevice: timestamp,
+            messageId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
+            rawMessage: parsedData.rawMessage,
           }),
         );
         break;
 
       case 'QRY_MODULE':
         normalizedMessages.push(
-          this.createNormalizedMessage({
+          this.createUnifiedRecord({
             deviceId,
             deviceType,
-            sensorType: 'DEVICE',
-            msgType: 'QRY_MODULE',
-            modNum: null,
-            modId: null,
-            ts: timestamp,
-            payload: {
+            messageClass: 'STATE',
+            dataKey: 'module_info',
+            jsonValue: {
               modules: data.modules.map((module) => ({
-                modNum: module.modNum,
-                fwVersion: module.fwVersion,
+                modAddr: module.modAddr,
+                fwVer: module.fwVersion,
               })),
-              msgId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
             },
-            meta: {
-              messageClass,
-              rawMessage: parsedData.rawMessage,
-            },
+            tsDevice: timestamp,
+            messageId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
+            rawMessage: parsedData.rawMessage,
           }),
         );
         break;
 
       case 'QRY_COLOR':
         normalizedMessages.push(
-          this.createNormalizedMessage({
+          this.createUnifiedRecord({
             deviceId,
             deviceType,
-            sensorType: 'DEVICE',
-            msgType: 'QRY_COLOR',
-            modNum: data.modNum,
-            modId: null,
-            ts: timestamp,
-            payload: {
-              cmdResult: data.cmdResult,
-              colors: data.colors.map((color) => ({
-                num: color.num,
+            moduleIndex: data.modNum,
+            sensorIndex: 0,
+            messageClass: 'STATE',
+            dataKey: 'color_map',
+            jsonValue: {
+              result: data.cmdResult === 0xA1 ? 'Success' : 'Failure',
+              colorMap: data.colors.map((color) => ({
+                uPos: color.uPos,
                 colorCode: color.colorCode,
                 colorName: this.colorCodeMap[color.colorCode] || 'UNKNOWN',
               })),
-              msgId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
             },
-            meta: {
-              messageClass,
-              rawMessage: parsedData.rawMessage,
-            },
+            tsDevice: timestamp,
+            messageId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
+            rawMessage: parsedData.rawMessage,
           }),
         );
         break;
 
       case 'SET_COLOR':
         normalizedMessages.push(
-          this.createNormalizedMessage({
+          this.createUnifiedRecord({
             deviceId,
             deviceType,
-            sensorType: 'DEVICE',
-            msgType: 'SET_COLOR',
-            modNum: data.modNum,
-            modId: null,
-            ts: timestamp,
-            payload: {
-              cmdResult: data.cmdResult,
+            moduleIndex: data.modNum,
+            sensorIndex: 0,
+            messageClass: 'EVENT',
+            dataKey: 'color_set',
+            jsonValue: {
+              result: data.cmdResult === 0xA1 ? 'Success' : 'Failure',
+              originalReq: data.originalReq,
               colors: data.colors.map((color) => ({
-                num: color.num,
+                uPos: color.uPos,
                 colorCode: color.colorCode,
                 colorName: this.colorCodeMap[color.colorCode] || 'UNKNOWN',
               })),
-              msgId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
             },
-            meta: {
-              messageClass,
-              rawMessage: parsedData.rawMessage,
-            },
+            tsDevice: timestamp,
+            messageId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
+            rawMessage: parsedData.rawMessage,
           }),
         );
         break;
 
       case 'CLR_ALARM':
         normalizedMessages.push(
-          this.createNormalizedMessage({
+          this.createUnifiedRecord({
             deviceId,
             deviceType,
-            sensorType: 'DEVICE',
-            msgType: 'CLR_ALARM',
-            modNum: data.modNum,
-            modId: null,
-            ts: timestamp,
-            payload: {
-              cmdResult: data.cmdResult,
-              nums: data.nums,
-              msgId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
+            moduleIndex: data.modNum,
+            sensorIndex: 0,
+            messageClass: 'EVENT',
+            dataKey: 'alarm_clear',
+            jsonValue: {
+              result: data.cmdResult === 0xA1 ? 'Success' : 'Failure',
+              originalReq: data.originalReq,
+              uPositions: data.uPositions || [],
             },
-            meta: {
-              messageClass,
-              rawMessage: parsedData.rawMessage,
-            },
+            tsDevice: timestamp,
+            messageId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
+            rawMessage: parsedData.rawMessage,
           }),
         );
         break;
@@ -433,67 +449,88 @@ class UnifiedNormalizer extends BaseComponent {
     const currentRfidMap = new Map();
 
     // Build current RFID state map
-    for (const rfidItem of data.rfidData) {
-      currentRfidMap.set(rfidItem.rfid, {
-        num: rfidItem.num,
-        alarm: rfidItem.alarm,
+    for (const rfidItem of data.items) {
+      currentRfidMap.set(rfidItem.tagId, {
+        uPos: rfidItem.uPos,
+        alarmStatus: rfidItem.alarmStatus,
       });
     }
 
-    // Detect attached RFID tags (new or changed)
-    for (const [rfid, rfidInfo] of currentRfidMap) {
-      const previousRfid = previousState.get(rfid);
+    // Create full RFID map as JSON blob for preservation
+    const rfidFullMap = {
+      uTotal: data.uTotal,
+      onlineCount: data.onlineCount,
+      items: data.items.map((item) => ({
+        uPos: item.uPos,
+        alarmStatus: item.alarmStatus,
+        tagId: item.tagId.toString(16).toUpperCase().padStart(8, '0'),
+      })),
+    };
 
-      if (!previousRfid || previousRfid.alarm !== rfidInfo.alarm) {
+    // Always store the full RFID map as a JSON blob
+    normalizedMessages.push(
+      this.createUnifiedRecord({
+        deviceId,
+        deviceType,
+        moduleIndex: data.modAddr,
+        sensorIndex: 0, // RFID applies to whole module
+        messageClass: 'STATE',
+        dataKey: 'rfid_full_map',
+        jsonValue: rfidFullMap,
+        tsDevice: timestamp,
+        messageId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
+        rawMessage: parsedData.rawMessage,
+      }),
+    );
+
+    // Detect attached RFID tags (new or changed)
+    for (const [tagId, rfidInfo] of currentRfidMap) {
+      const previousRfid = previousState.get(tagId);
+
+      if (!previousRfid || previousRfid.alarmStatus !== rfidInfo.alarmStatus) {
         // New tag or alarm state changed
         normalizedMessages.push(
-          this.createNormalizedMessage({
+          this.createUnifiedRecord({
             deviceId,
             deviceType,
-            sensorType: 'RFID',
-            msgType: 'RFID_ATTACH',
-            modNum: data.modNum,
-            modId: data.modId.toString(16).toUpperCase().padStart(8, '0'),
-            ts: timestamp,
-            payload: {
-              num: rfidInfo.num,
-              rfid: rfid.toString(16).toUpperCase().padStart(8, '0'),
-              alarm: rfidInfo.alarm,
-              msgId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
-            },
-            meta: {
-              messageClass,
-              rawMessage: parsedData.rawMessage,
+            moduleIndex: data.modAddr,
+            sensorIndex: rfidInfo.uPos,
+            messageClass: 'EVENT',
+            dataKey: 'rfid_attach',
+            jsonValue: {
+              uPos: rfidInfo.uPos,
+              tagId: tagId.toString(16).toUpperCase().padStart(8, '0'),
+              alarmStatus: rfidInfo.alarmStatus,
               action: previousRfid ? 'alarm_change' : 'attach',
             },
+            tsDevice: timestamp,
+            messageId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
+            rawMessage: parsedData.rawMessage,
           }),
         );
       }
     }
 
     // Detect detached RFID tags
-    for (const [rfid, rfidInfo] of previousState) {
-      if (!currentRfidMap.has(rfid)) {
+    for (const [tagId, rfidInfo] of previousState) {
+      if (!currentRfidMap.has(tagId)) {
         // Tag was removed
         normalizedMessages.push(
-          this.createNormalizedMessage({
+          this.createUnifiedRecord({
             deviceId,
             deviceType,
-            sensorType: 'RFID',
-            msgType: 'RFID_DETACH',
-            modNum: data.modNum,
-            modId: data.modId.toString(16).toUpperCase().padStart(8, '0'),
-            ts: timestamp,
-            payload: {
-              num: rfidInfo.num,
-              rfid: rfid.toString(16).toUpperCase().padStart(8, '0'),
-              msgId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
-            },
-            meta: {
-              messageClass,
-              rawMessage: parsedData.rawMessage,
+            moduleIndex: data.modAddr,
+            sensorIndex: rfidInfo.uPos,
+            messageClass: 'EVENT',
+            dataKey: 'rfid_detach',
+            jsonValue: {
+              uPos: rfidInfo.uPos,
+              tagId: tagId.toString(16).toUpperCase().padStart(8, '0'),
               action: 'detach',
             },
+            tsDevice: timestamp,
+            messageId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
+            rawMessage: parsedData.rawMessage,
           }),
         );
       }
@@ -501,35 +538,6 @@ class UnifiedNormalizer extends BaseComponent {
 
     // Store current RFID state for next comparison
     this.storeCurrentRfidState(deviceId, currentRfidMap);
-
-    // If no changes detected, emit a status message
-    if (normalizedMessages.length === 0) {
-      normalizedMessages.push(
-        this.createNormalizedMessage({
-          deviceId,
-          deviceType,
-          sensorType: 'RFID',
-          msgType: 'RFID_STATUS',
-          modNum: data.modNum,
-          modId: data.modId.toString(16).toUpperCase().padStart(8, '0'),
-          ts: timestamp,
-          payload: {
-            rfidCount: data.rfidCount,
-            rfidData: data.rfidData.map((rfid) => ({
-              num: rfid.num,
-              rfid: rfid.rfid.toString(16).toUpperCase().padStart(8, '0'),
-              alarm: rfid.alarm,
-            })),
-            msgId: data.msgId.toString(16).toUpperCase().padStart(8, '0'),
-          },
-          meta: {
-            messageClass,
-            rawMessage: parsedData.rawMessage,
-            action: 'status',
-          },
-        }),
-      );
-    }
 
     return normalizedMessages;
   }
@@ -547,10 +555,10 @@ class UnifiedNormalizer extends BaseComponent {
       const message = history[i];
       if (message.data.msgType === 'RFID') {
         const rfidMap = new Map();
-        for (const rfidItem of message.data.rfidData) {
-          rfidMap.set(rfidItem.rfid, {
-            num: rfidItem.num,
-            alarm: rfidItem.alarm,
+        for (const rfidItem of message.data.items) {
+          rfidMap.set(rfidItem.tagId, {
+            uPos: rfidItem.uPos,
+            alarmStatus: rfidItem.alarmStatus,
           });
         }
         return rfidMap;
@@ -579,19 +587,17 @@ class UnifiedNormalizer extends BaseComponent {
     const { deviceId, deviceType, data, timestamp, messageClass } = parsedData;
 
     return [
-      this.createNormalizedMessage({
+      this.createUnifiedRecord({
         deviceId,
         deviceType,
-        sensorType: messageClass,
-        msgType: data.msgType || messageClass,
-        modNum: this.extractModNum(data),
-        modId: this.extractModId(data),
-        ts: timestamp,
-        payload: data,
-        meta: {
-          messageClass,
-          rawMessage: parsedData.rawMessage,
-        },
+        moduleIndex: this.extractModNum(data),
+        sensorIndex: 0,
+        messageClass: 'STATE',
+        dataKey: (data.msgType || messageClass).toLowerCase(),
+        jsonValue: data,
+        tsDevice: timestamp,
+        messageId: data.msgId || null,
+        rawMessage: parsedData.rawMessage,
       }),
     ];
   }

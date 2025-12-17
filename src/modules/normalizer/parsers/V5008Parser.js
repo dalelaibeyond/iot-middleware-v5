@@ -82,7 +82,7 @@ class V5008Parser {
 
   /**
    * Parse HEARTBEAT message (CB/CC header)
-   * Format: [CB/CC]([modNum + modId(4B) + uCount] x N) [msgId(4B)]
+   * Format: [CB/CC]([modAddr + modId(4B) + uTotal] x 10) [msgId(4B)]
    * @param {string} rawHexString - Raw hex message
    * @param {string} deviceId - Device ID
    * @returns {Object} Parsed data
@@ -97,19 +97,19 @@ class V5008Parser {
     let index = 2; // Start after header
     while (index < rawHexString.length - 8) {
       // Leave space for msgId
-      const modNum = this.hexToByte(rawHexString, index);
-      if (modNum === 0) break; // End of modules
+      const modAddr = this.hexToByte(rawHexString, index);
+      if (modAddr === 0 || modAddr > 5) break; // End of modules or invalid address
 
       const modId = this.hexToDword(rawHexString, index + 1);
-      const uCount = this.hexToByte(rawHexString, index + 5);
+      const uTotal = this.hexToByte(rawHexString, index + 5);
 
       data.modules.push({
-        modNum,
+        modAddr,
         modId,
-        uCount,
+        uTotal,
       });
 
-      index += 6; // 1 (modNum) + 4 (modId) + 1 (uCount) = 6 bytes
+      index += 6; // 1 (modAddr) + 4 (modId) + 1 (uTotal) = 6 bytes
     }
 
     // Extract message ID (last 4 bytes)
@@ -127,7 +127,7 @@ class V5008Parser {
 
   /**
    * Parse DOOR message (BA header)
-   * Format: [BA][modNum][modId(4B)][status] [msgId(4B)]
+   * Format: [BA][modAddr][modId(4B)][doorState] [msgId(4B)]
    * @param {string} rawHexString - Raw hex message
    * @param {string} deviceId - Device ID
    * @returns {Object} Parsed data
@@ -135,9 +135,9 @@ class V5008Parser {
   parseDoorMessage(rawHexString, deviceId) {
     const data = {
       msgType: 'DOOR',
-      modNum: this.hexToByte(rawHexString, 2),
+      modAddr: this.hexToByte(rawHexString, 2),
       modId: this.hexToDword(rawHexString, 3),
-      status: this.hexToByte(rawHexString, 7),
+      doorState: this.hexToByte(rawHexString, 7),
     };
 
     // Extract message ID (last 4 bytes)
@@ -211,15 +211,15 @@ class V5008Parser {
     let index = 4; // Start after EF02
     while (index < rawHexString.length - 8) {
       // Leave space for msgId
-      const modNum = this.hexToByte(rawHexString, index);
+      const modAddr = this.hexToByte(rawHexString, index);
       const fwVersion = rawHexString.substring(index + 2, index + 14); // 6 bytes = 12 hex chars
 
       data.modules.push({
-        modNum,
+        modAddr,
         fwVersion,
       });
 
-      index += 7; // 1 (modNum) + 6 (fwVersion) = 7 bytes
+      index += 7; // 1 (modAddr) + 6 (fwVersion) = 7 bytes
     }
 
     // Extract message ID (last 4 bytes)
@@ -244,23 +244,23 @@ class V5008Parser {
    */
   parseCommandResponseMessage(rawHexString, deviceId) {
     // Extract command result and device ID
-    const cmdResult = this.hexToWord(rawHexString, 8);
+    const resultCode = this.hexToByte(rawHexString, 8);
     const deviceIdFromMsg = this.hexToDword(rawHexString, 2);
 
     // Look for command identifier after device ID and result
-    const cmdIndex = 10; // After AA[deviceId(4B)][cmdResult(2B)]
+    const cmdIndex = 10; // After AA[deviceId(4B)][resultCode(1B)]
     const cmdIdentifier = rawHexString.substring(cmdIndex, cmdIndex + 2);
 
     let data;
     switch (cmdIdentifier) {
       case 'E4':
-        data = this.parseColorQueryResponse(rawHexString, cmdResult);
+        data = this.parseColorQueryResponse(rawHexString, resultCode);
         break;
       case 'E1':
-        data = this.parseSetColorResponse(rawHexString, cmdResult);
+        data = this.parseSetColorResponse(rawHexString, resultCode);
         break;
       case 'E2':
-        data = this.parseClearAlarmResponse(rawHexString, cmdResult);
+        data = this.parseClearAlarmResponse(rawHexString, resultCode);
         break;
       default:
         throw new Error(`Unknown command identifier: ${cmdIdentifier}`);
@@ -282,6 +282,7 @@ class V5008Parser {
   /**
    * Parse QRY_COLOR response (E4 command)
    * Format: [AA][deviceId(4B)][cmdResult][E4][modNum]([colorCode] x n) [msgId(4B)]
+   * Note: The response does not contain a count field (uTotal). Must calculate from packet length.
    * @param {string} rawHexString - Raw hex message
    * @param {number} cmdResult - Command result
    * @returns {Object} Parsed data
@@ -294,14 +295,19 @@ class V5008Parser {
       colors: [],
     };
 
+    // Calculate uTotal based on packet length
+    // Total Bytes - Header(1) - DevId(4) - Result(1) - OrigReq(2) - messageId(4) = 12 bytes
+    const fixedOverhead = 12;
+    const totalBytes = rawHexString.length / 2; // Convert hex chars to bytes
+    const uTotal = totalBytes - fixedOverhead;
+
     // Parse color codes
     let index = 13; // After AA[deviceId(4B)][cmdResult(2B)][E4][modNum]
-    while (index < rawHexString.length - 8) {
-      // Leave space for msgId
+    for (let i = 0; i < uTotal; i++) {
       const colorCode = this.hexToByte(rawHexString, index);
 
       data.colors.push({
-        num: data.colors.length + 1,
+        uPos: i + 1, // U-level position (1-based)
         colorCode,
       });
 
@@ -313,32 +319,56 @@ class V5008Parser {
 
   /**
    * Parse SET_COLOR response (E1 command)
-   * Format: [AA][deviceId(4B)][cmdResult][E1][modNum]([num][colorCode]...) [msgId(4B)]
+   * Format: [AA][deviceId(4B)][cmdResult][originalReq] [msgId(4B)]
+   * originalReq includes command code: E1
    * @param {string} rawHexString - Raw hex message
    * @param {number} cmdResult - Command result
    * @returns {Object} Parsed data
    */
   parseSetColorResponse(rawHexString, cmdResult) {
+    // Calculate originalReq length (variable)
+    // Header(1) + DevId(4) + Result(1) = 6 bytes at start
+    // messageId(4) = 4 bytes at end
+    const totalBytes = rawHexString.length / 2; // Convert hex chars to bytes
+    const reqLength = totalBytes - 10;
+
+    // Extract originalReq
+    const originalReqStart = 6; // After AA[deviceId(4B)][cmdResult(1B)]
+    const originalReqEnd = originalReqStart + reqLength;
+    const originalReq = rawHexString.substring(originalReqStart * 2, originalReqEnd * 2);
+
     const data = {
       msgType: 'SET_COLOR',
       cmdResult,
-      modNum: this.hexToByte(rawHexString, 12),
-      colors: [],
+      originalReq,
     };
 
-    // Parse color settings
-    let index = 13; // After AA[deviceId(4B)][cmdResult(2B)][E1][modNum]
-    while (index < rawHexString.length - 8) {
-      // Leave space for msgId
-      const num = this.hexToByte(rawHexString, index);
-      const colorCode = this.hexToByte(rawHexString, index + 1);
+    // Parse the original request to extract the color settings
+    // Format: [E1][modAddr]([uPos + colorCode] x N)
+    let index = 0;
+    if (originalReq.length >= 2) {
+      const cmdCode = originalReq.substring(index, index + 2);
+      if (cmdCode === 'E1') {
+        index += 2;
+        const modAddr = this.hexToByte(originalReq, index / 2);
+        index += 2;
+        
+        data.modNum = modAddr;
+        data.colors = [];
 
-      data.colors.push({
-        num,
-        colorCode,
-      });
+        // Parse color settings
+        while (index < originalReq.length) {
+          const uPos = this.hexToByte(originalReq, index / 2);
+          const colorCode = this.hexToByte(originalReq, (index / 2) + 1);
 
-      index += 2; // 1 (num) + 1 (colorCode) = 2 bytes
+          data.colors.push({
+            uPos,
+            colorCode,
+          });
+
+          index += 4; // 2 bytes = 4 hex chars
+        }
+      }
     }
 
     return data;
@@ -346,27 +376,50 @@ class V5008Parser {
 
   /**
    * Parse CLR_ALARM response (E2 command)
-   * Format: [AA][deviceId(4B)][cmdResult][E2][modNum]([num]...) [msgId(4B)]
+   * Format: [AA][deviceId(4B)][cmdResult][originalReq] [msgId(4B)]
+   * originalReq includes command code: E2
    * @param {string} rawHexString - Raw hex message
    * @param {number} cmdResult - Command result
    * @returns {Object} Parsed data
    */
   parseClearAlarmResponse(rawHexString, cmdResult) {
+    // Calculate originalReq length (variable)
+    // Header(1) + DevId(4) + Result(1) = 6 bytes at start
+    // messageId(4) = 4 bytes at end
+    const totalBytes = rawHexString.length / 2; // Convert hex chars to bytes
+    const reqLength = totalBytes - 10;
+
+    // Extract originalReq
+    const originalReqStart = 6; // After AA[deviceId(4B)][cmdResult(1B)]
+    const originalReqEnd = originalReqStart + reqLength;
+    const originalReq = rawHexString.substring(originalReqStart * 2, originalReqEnd * 2);
+
     const data = {
       msgType: 'CLR_ALARM',
       cmdResult,
-      modNum: this.hexToByte(rawHexString, 12),
-      nums: [],
+      originalReq,
     };
 
-    // Parse alarm numbers
-    let index = 13; // After AA[deviceId(4B)][cmdResult(2B)][E2][modNum]
-    while (index < rawHexString.length - 8) {
-      // Leave space for msgId
-      const num = this.hexToByte(rawHexString, index);
+    // Parse the original request to extract the alarm clear settings
+    // Format: [E2][modAddr]([uPos] x N)
+    let index = 0;
+    if (originalReq.length >= 2) {
+      const cmdCode = originalReq.substring(index, index + 2);
+      if (cmdCode === 'E2') {
+        index += 2;
+        const modAddr = this.hexToByte(originalReq, index / 2);
+        index += 2;
+        
+        data.modNum = modAddr;
+        data.uPositions = [];
 
-      data.nums.push(num);
-      index += 1; // 1 byte per num
+        // Parse U positions
+        while (index < originalReq.length) {
+          const uPos = this.hexToByte(originalReq, index / 2);
+          data.uPositions.push(uPos);
+          index += 2; // 1 byte = 2 hex chars
+        }
+      }
     }
 
     return data;
@@ -382,27 +435,27 @@ class V5008Parser {
   parseLabelStateMessage(rawHexString, deviceId) {
     const data = {
       msgType: 'RFID',
-      modNum: this.hexToByte(rawHexString, 2),
+      modAddr: this.hexToByte(rawHexString, 2),
       modId: this.hexToDword(rawHexString, 3),
-      uCount: this.hexToByte(rawHexString, 7),
-      rfidCount: this.hexToByte(rawHexString, 8),
-      rfidData: [],
+      uTotal: this.hexToByte(rawHexString, 7),
+      onlineCount: this.hexToByte(rawHexString, 8),
+      items: [],
     };
 
     // Parse RFID data
-    let index = 9; // After BB[modNum][modId(4B)][reserve][uCount][rfidCount]
-    for (let i = 0; i < data.rfidCount; i++) {
-      const num = this.hexToByte(rawHexString, index);
-      const alarm = this.hexToByte(rawHexString, index + 1);
-      const rfid = this.hexToDword(rawHexString, index + 2);
+    let index = 9; // After BB[modAddr][modId(4B)][reserved][uTotal][onlineCount]
+    for (let i = 0; i < data.onlineCount; i++) {
+      const uPos = this.hexToByte(rawHexString, index);
+      const alarmStatus = this.hexToByte(rawHexString, index + 1);
+      const tagId = this.hexToDword(rawHexString, index + 2);
 
-      data.rfidData.push({
-        num,
-        alarm,
-        rfid,
+      data.items.push({
+        uPos,
+        alarmStatus,
+        tagId,
       });
 
-      index += 6; // 1 (num) + 1 (alarm) + 4 (rfid) = 6 bytes
+      index += 6; // 1 (uPos) + 1 (alarmStatus) + 4 (tagId) = 6 bytes
     }
 
     // Extract message ID (last 4 bytes)
@@ -420,7 +473,7 @@ class V5008Parser {
 
   /**
    * Parse TemHum message (Temperature/Humidity)
-   * Format: [modNum][modId(4B)]([add][temp(4B)][hum(4B)] x 6) [msgId(4B)]
+   * Format: [modNum][modId(4B)]([sensorAddr + tempInt + tempFrac + humInt + humFrac] x 6) [msgId(4B)]
    * @param {string} rawHexString - Raw hex message
    * @param {string} deviceId - Device ID
    * @returns {Object} Parsed data
@@ -428,7 +481,7 @@ class V5008Parser {
   parseTemHumMessage(rawHexString, deviceId) {
     const data = {
       msgType: 'TEMP_HUM',
-      modNum: this.hexToByte(rawHexString, 0),
+      modAddr: this.hexToByte(rawHexString, 0),
       modId: this.hexToDword(rawHexString, 1),
       sensors: [],
     };
@@ -436,17 +489,30 @@ class V5008Parser {
     // Parse sensor data
     let index = 5; // After [modNum][modId(4B)]
     for (let i = 0; i < 6; i++) {
-      const add = this.hexToByte(rawHexString, index);
-      const temp = this.hexToDword(rawHexString, index + 1);
-      const hum = this.hexToDword(rawHexString, index + 5);
+      const sensorAddr = this.hexToByte(rawHexString, index);
+      const tempInt = this.hexToSignedByte(rawHexString, index + 1);
+      const tempFrac = this.hexToByte(rawHexString, index + 2);
+      const humInt = this.hexToSignedByte(rawHexString, index + 3);
+      const humFrac = this.hexToByte(rawHexString, index + 4);
+
+      // Convert to proper decimal format with signed integer handling
+      let temp = Math.abs(tempInt) + (tempFrac / 100.0);
+      if (tempInt < 0) temp = temp * -1;
+      
+      let hum = Math.abs(humInt) + (humFrac / 100.0);
+      if (humInt < 0) hum = hum * -1;
+
+      // Set to null if sensor address is 0 (unused slot)
+      const finalTemp = sensorAddr === 0 ? null : temp;
+      const finalHum = sensorAddr === 0 ? null : hum;
 
       data.sensors.push({
-        add,
-        temp: temp / 100, // Convert from integer.fraction format
-        hum: hum / 100,
+        sensorAddr,
+        temp: finalTemp,
+        hum: finalHum,
       });
 
-      index += 9; // 1 (add) + 4 (temp) + 4 (hum) = 9 bytes
+      index += 5; // 1 (sensorAddr) + 1 (tempInt) + 1 (tempFrac) + 1 (humInt) + 1 (humFrac) = 5 bytes
     }
 
     // Extract message ID (last 4 bytes)
@@ -464,7 +530,7 @@ class V5008Parser {
 
   /**
    * Parse Noise message
-   * Format: [modNum][modId(4B)]([add][noise(4B)] x 3) [msgId(4B)]
+   * Format: [modNum][modId(4B)]([sensorAddr + noiseInt + noiseFrac] x 3) [msgId(4B)]
    * @param {string} rawHexString - Raw hex message
    * @param {string} deviceId - Device ID
    * @returns {Object} Parsed data
@@ -472,7 +538,7 @@ class V5008Parser {
   parseNoiseMessage(rawHexString, deviceId) {
     const data = {
       msgType: 'NOISE',
-      modNum: this.hexToByte(rawHexString, 0),
+      modAddr: this.hexToByte(rawHexString, 0),
       modId: this.hexToDword(rawHexString, 1),
       sensors: [],
     };
@@ -480,15 +546,23 @@ class V5008Parser {
     // Parse noise data
     let index = 5; // After [modNum][modId(4B)]
     for (let i = 0; i < 3; i++) {
-      const add = this.hexToByte(rawHexString, index);
-      const noise = this.hexToDword(rawHexString, index + 1);
+      const sensorAddr = this.hexToByte(rawHexString, index);
+      const noiseInt = this.hexToSignedByte(rawHexString, index + 1);
+      const noiseFrac = this.hexToByte(rawHexString, index + 2);
+
+      // Convert to proper decimal format with signed integer handling
+      let noise = Math.abs(noiseInt) + (noiseFrac / 100.0);
+      if (noiseInt < 0) noise = noise * -1;
+
+      // Set to null if sensor address is 0 (unused slot)
+      const finalNoise = sensorAddr === 0 ? null : noise;
 
       data.sensors.push({
-        add,
-        noise: noise / 100, // Convert from integer.fraction format
+        sensorAddr,
+        noise: finalNoise,
       });
 
-      index += 5; // 1 (add) + 4 (noise) = 5 bytes
+      index += 3; // 1 (sensorAddr) + 1 (noiseInt) + 1 (noiseFrac) = 3 bytes
     }
 
     // Extract message ID (last 4 bytes)
@@ -532,6 +606,18 @@ class V5008Parser {
    */
   hexToDword(hexString, index) {
     return parseInt(hexString.substring(index * 2, index * 2 + 8), 16);
+  }
+
+  /**
+   * Helper function to convert hex string to signed byte (1 byte)
+   * @param {string} hexString - Hex string
+   * @param {number} index - Starting byte index
+   * @returns {number} Signed byte value
+   */
+  hexToSignedByte(hexString, index) {
+    const value = parseInt(hexString.substring(index * 2, index * 2 + 2), 16);
+    // Convert to signed 8-bit integer
+    return value > 127 ? value - 256 : value;
   }
 
   /**

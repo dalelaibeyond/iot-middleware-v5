@@ -8,6 +8,7 @@ import mysql from 'mysql2/promise';
 import { BaseComponent } from '../../core/index.js';
 import WriteBuffer from './WriteBuffer.js';
 import Cache from './Cache.js';
+import DatabaseConfigManager from './DatabaseConfigManager.js';
 
 class DatabaseStorage extends BaseComponent {
   constructor(options = {}) {
@@ -16,6 +17,7 @@ class DatabaseStorage extends BaseComponent {
     this.pool = null;
     this.writeBuffer = null;
     this.cache = null;
+    this.configManager = null;
   }
 
   /**
@@ -23,38 +25,38 @@ class DatabaseStorage extends BaseComponent {
    */
   async initialize() {
     try {
-      this.validateOptions(['host', 'user', 'password', 'database']);
+      this.logger.info('Initializing Database Storage...');
 
-      this.logger.info('Initializing Database Storage...', {
-        host: this.options.host,
-        port: this.options.port,
-        database: this.options.database,
-        connectionLimit: this.options.connectionLimit,
+      // Initialize configuration manager
+      this.configManager = new DatabaseConfigManager(this.options.configPath);
+      await this.configManager.initialize();
+
+      // Get configuration
+      const config = this.configManager.getConfig();
+
+      // Setup configuration change listener
+      this.configManager.on('configChanged', this.handleConfigChange.bind(this));
+      this.configManager.on('configError', this.handleConfigError.bind(this));
+
+      this.logger.info('Database configuration loaded', {
+        host: config.host,
+        port: config.port,
+        database: config.database,
+        connectionLimit: config.connectionLimit,
       });
 
       // Create connection pool
-      this.pool = mysql.createPool({
-        host: this.options.host,
-        port: this.options.port || 3306,
-        user: this.options.user,
-        password: this.options.password,
-        database: this.options.database,
-        connectionLimit: this.options.connectionLimit || 10,
-        acquireTimeout: 60000,
-        timeout: 60000,
-        reconnect: true,
-        charset: 'utf8mb4',
-      });
+      await this.createConnectionPool(config);
 
       // Test connection
       await this.testConnection();
 
       // Initialize write buffer
-      this.writeBuffer = new WriteBuffer(this.options.writeBuffer || {});
+      this.writeBuffer = new WriteBuffer(config.writeBuffer || {});
       await this.writeBuffer.initialize();
 
       // Initialize cache
-      this.cache = new Cache(this.options.cache || {});
+      this.cache = new Cache(config.cache || {});
       await this.cache.initialize();
 
       // Subscribe to normalized message events
@@ -67,6 +69,80 @@ class DatabaseStorage extends BaseComponent {
       this.handleError(error, 'Failed to initialize Database Storage');
       throw error;
     }
+  }
+
+  /**
+   * Create database connection pool
+   * @param {Object} config - Database configuration
+   */
+  async createConnectionPool(config) {
+    // Close existing pool if it exists
+    if (this.pool) {
+      await this.pool.end();
+      this.pool = null;
+    }
+
+    // Create new pool with updated configuration
+    this.pool = mysql.createPool({
+      host: config.host,
+      port: config.port || 3306,
+      user: config.user,
+      password: config.password,
+      database: config.database,
+      connectionLimit: config.connectionLimit || 10,
+      acquireTimeout: config.acquireTimeout || 60000,
+      timeout: config.timeout || 60000,
+      reconnect: config.reconnect !== false,
+      charset: config.charset || 'utf8mb4',
+      ssl: config.ssl || false,
+      timezone: config.timezone || '+00:00',
+      namedPlaceholders: config.namedPlaceholders !== false,
+      dateStrings: config.dateStrings || false,
+      multipleStatements: config.multipleStatements || false,
+    });
+
+    this.logger.info('Database connection pool created with new configuration');
+  }
+
+  /**
+   * Handle configuration changes
+   * @param {Object} newConfig - New configuration
+   */
+  async handleConfigChange(newConfig) {
+    try {
+      this.logger.info('Handling database configuration change...');
+
+      // Recreate connection pool with new configuration
+      await this.createConnectionPool(newConfig);
+
+      // Test new connection
+      await this.testConnection();
+
+      // Update write buffer configuration
+      if (this.writeBuffer && newConfig.writeBuffer) {
+        this.writeBuffer.updateConfig(newConfig.writeBuffer);
+      }
+
+      // Update cache configuration
+      if (this.cache && newConfig.cache) {
+        this.cache.updateConfig(newConfig.cache);
+      }
+
+      this.logger.info('Database configuration updated successfully');
+      this.emit('configUpdated', newConfig);
+    } catch (error) {
+      this.handleError(error, 'Failed to apply configuration change');
+      this.emit('configError', error);
+    }
+  }
+
+  /**
+   * Handle configuration errors
+   * @param {Error} error - Configuration error
+   */
+  handleConfigError(error) {
+    this.handleError(error, 'Database configuration error');
+    this.emit('configError', error);
   }
 
   /**
@@ -425,6 +501,64 @@ class DatabaseStorage extends BaseComponent {
   }
 
   /**
+   * Get current database configuration
+   * @returns {Object} Current configuration
+   */
+  getConfig() {
+    if (!this.configManager) {
+      throw new Error('Configuration manager not initialized');
+    }
+    return this.configManager.getConfig();
+  }
+
+  /**
+   * Get specific configuration value
+   * @param {string} path - Configuration path (e.g., 'writeBuffer.maxSize')
+   * @returns {*} Configuration value
+   */
+  getConfigValue(path) {
+    if (!this.configManager) {
+      throw new Error('Configuration manager not initialized');
+    }
+    return this.configManager.getConfigValue(path);
+  }
+
+  /**
+   * Reload database configuration
+   * @returns {Promise<Object>} Reloaded configuration
+   */
+  async reloadConfig() {
+    if (!this.configManager) {
+      throw new Error('Configuration manager not initialized');
+    }
+    return await this.configManager.reloadConfig();
+  }
+
+  /**
+   * Subscribe to configuration changes
+   * @param {string} event - Event name
+   * @param {Function} listener - Event listener
+   */
+  onConfig(event, listener) {
+    if (!this.configManager) {
+      throw new Error('Configuration manager not initialized');
+    }
+    this.configManager.on(event, listener);
+  }
+
+  /**
+   * Unsubscribe from configuration changes
+   * @param {string} event - Event name
+   * @param {Function} listener - Event listener
+   */
+  offConfig(event, listener) {
+    if (!this.configManager) {
+      throw new Error('Configuration manager not initialized');
+    }
+    this.configManager.off(event, listener);
+  }
+
+  /**
    * Shutdown database storage
    */
   async shutdown() {
@@ -450,6 +584,12 @@ class DatabaseStorage extends BaseComponent {
       if (this.pool) {
         await this.pool.end();
         this.pool = null;
+      }
+
+      // Shutdown configuration manager
+      if (this.configManager) {
+        await this.configManager.shutdown();
+        this.configManager = null;
       }
 
       this.initialized = false;

@@ -238,6 +238,30 @@ class WriteBuffer extends BaseComponent {
   }
 
   /**
+   * Update configuration
+   * @param {Object} newOptions - New configuration options
+   */
+  updateConfig(newOptions) {
+    const oldOptions = { ...this.options };
+    
+    // Update options
+    this.options = {
+      ...this.options,
+      ...newOptions,
+    };
+
+    this.logger.info('Write Buffer configuration updated', {
+      oldOptions,
+      newOptions: this.options,
+    });
+
+    // Restart flush timer if interval changed
+    if (newOptions.flushInterval && newOptions.flushInterval !== oldOptions.flushInterval) {
+      this.setupFlushTimer();
+    }
+  }
+
+  /**
    * Shutdown write buffer
    */
   async shutdown(writeFunction) {

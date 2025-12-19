@@ -322,6 +322,42 @@ class Cache extends BaseComponent {
   }
 
   /**
+   * Update configuration
+   * @param {Object} newOptions - New configuration options
+   */
+  updateConfig(newOptions) {
+    const oldOptions = { ...this.options };
+    
+    // Update options
+    this.options = {
+      ...this.options,
+      ...newOptions,
+    };
+
+    this.logger.info('Cache configuration updated', {
+      oldOptions,
+      newOptions: this.options,
+    });
+
+    // If max size decreased, evict excess items
+    if (newOptions.maxSize && newOptions.maxSize < oldOptions.maxSize) {
+      while (this.cache.size > this.options.maxSize) {
+        this.evictLRU();
+      }
+    }
+
+    // Update TTL for existing items if TTL changed
+    if (newOptions.ttl && newOptions.ttl !== oldOptions.ttl) {
+      for (const [key, item] of this.cache.entries()) {
+        const remainingTTL = item.expiryTime - Date.now();
+        if (remainingTTL > 0) {
+          this.setTTLTimer(key, Math.min(remainingTTL, this.options.ttl));
+        }
+      }
+    }
+  }
+
+  /**
    * Shutdown cache
    */
   async shutdown() {
